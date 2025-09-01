@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="cs" class="h-full bg-gray-50">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kontrolní protokol NZÚ (Offline verze)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+    <style>
+        :root { font-family: 'Inter', sans-serif; }
+        @supports (font-variation-settings: normal) {
+            :root { font-family: 'Inter var', sans-serif; }
+        }
+        .project-list-item { transition: all 0.2s ease-in-out; }
+        .project-list-item.active { background-color: #3b82f6; color: white; }
+        .project-list-item:not(.active):hover { background-color: #f3f4f6; }
+        .action-btn { visibility: hidden; opacity: 0; transition: visibility 0s, opacity 0.2s linear; }
+        .project-list-item:hover .action-btn { visibility: visible; opacity: 1; }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .custom-radio input { opacity: 0; width: 0; height: 0; position: absolute; }
+        .custom-radio label {
+            cursor: pointer;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            border: 1px solid #d1d5db;
+            font-size: 0.875rem;
+            transition: all 0.2s ease;
+        }
+        .custom-radio input:checked + label.ok-label { background-color: #16a34a; color: white; border-color: #16a34a; }
+        .custom-radio input:checked + label.chyba-label { background-color: #dc2626; color: white; border-color: #dc2626; }
+        .manager-check input:checked + label { background-color: #16a34a; color: white; border-color: #16a34a; }
+        .manager-check label { transition: all 0.2s ease; }
+        
+        .print-only {
+            display: none;
+        }
+
+        .pdf-page-break {
+            break-after: page;
+            page-break-after: always; /* Fallback for older browsers */
+        }
+
+        @media print {
+            .no-print { display: none !important; }
+            .print-only { display: inline !important; visibility: visible !important; }
+            body, #app-container, main {
+                padding: 0;
+                margin: 0;
+            }
+            #checklist-content {
+                box-shadow: none;
+                border: none;
+            }
+            .bg-white.shadow-sm {
+                box-shadow: none;
+                border: 1px solid #e5e7eb;
+                page-break-inside: avoid;
+            }
+            .pdf-page-break {
+                page-break-after: always;
+            }
+        }
+    </style>
+</head>
+<body class="h-full">
+
+<div id="app-container" class="grid md:grid-cols-12 h-full">
+    <!-- Sidebar for Projects -->
+    <aside class="md:col-span-3 lg:col-span-2 bg-white border-r border-gray-200 p-4 flex flex-col h-full no-print">
+        <h1 class="text-xl font-bold text-gray-800 mb-4">Projekty NZÚ</h1>
+        <div class="mb-4 space-y-2">
+            <input type="text" id="new-project-name" placeholder="Název nového projektu" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+            <select id="assign-user" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                <option value="Michael">Michael</option>
+                <option value="Tomáš">Tomáš</option>
+            </select>
+            <button id="add-project-btn" class="w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                Přidat projekt
+            </button>
+        </div>
+        <div class="flex-grow overflow-y-auto">
+            <div>
+                <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Probíhající</h2>
+                <ul id="ongoing-project-list" class="space-y-1"></ul>
+            </div>
+            <div class="mt-6">
+                <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Dokončeno</h2>
+                <ul id="completed-project-list" class="space-y-1"></ul>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content for Checklist -->
+    <main class="md:col-span-9 lg:col-span-10 p-6 overflow-y-auto h-full relative">
+        <div id="checklist-view" class="hidden">
+            <div class="flex justify-between items-start mb-6">
+                <div>
+                    <h2 id="project-title" class="text-3xl font-bold text-gray-900">Vyberte projekt</h2>
+                    <div class="flex items-center space-x-2 mt-2 text-sm text-gray-600">
+                         <label for="project-user-select">Přiřazeno:</label>
+                         <select id="project-user-select" class="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm p-1 no-print">
+                            <option value="Michael">Michael</option>
+                            <option value="Tomáš">Tomáš</option>
+                        </select>
+                    </div>
+                </div>
+                <button id="export-pdf-btn" class="no-print bg-gray-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 flex items-center space-x-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm5 6a1 1 0 10-2 0v3.586l-1.293-1.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V8z" clip-rule="evenodd" /></svg>
+                    <span>Exportovat do PDF</span>
+                </button>
+            </div>
+            <div id="checklist-content" class="space-y-8"></div>
+        </div>
+        <div id="empty-state" class="flex items-center justify-center h-full no-print">
+            <div class="text-center">
+                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
+                <h3 class="mt-2 text-sm font-semibold text-gray-900">Žádný projekt není vybrán</h3>
+                <p class="mt-1 text-sm text-gray-500">Vytvořte nový projekt nebo vyberte existující ze seznamu.</p>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const ongoingProjectList = document.getElementById('ongoing-project-list');
+        const completedProjectList = document.getElementById('completed-project-list');
+        const addProjectBtn = document.getElementById('add-project-btn');
+        const newProjectNameInput = document.getElementById('new-project-name');
+        const assignUserSelect = document.getElementById('assign-user');
+        const checklistView = document.getElementById('checklist-view');
+        const emptyState = document.getElementById('empty-state');
+        const projectTitle = document.getElementById('project-title');
+        const checklistContent = document.getElementById('checklist-content');
+        const exportPdfBtn = document.getElementById('export-pdf-btn');
+        const projectUserSelect = document.getElementById('project-user-select');
+
+        let appState = {
+            projects: [],
+            activeProjectId: null
+        };
+
+        const checklistTemplate = {
+            'part1': {
+                title: 'Část 1: Kontrola dokumentace - STÁVAJÍCÍ STAV',
+                subtitle: 'Detailní kontrola přesnosti a kompletnosti dokumentace podle jednotlivých stran.',
+                type: 'standard',
+                sections: {
+                    '1.0': { title: 'Předběžná kontrola (CRM)', items: { '1.0.1': 'Proběhla kontrola klienta a jeho požadavků a navrhovaných opatření v CRM?' }},
+                    '1.1': { title: 'Úvodní stránka', items: { '1.1.1': 'Je uvedeno správné jméno, obec klienta?', '1.1.2': 'Razítko je bokem (pokud nejde k energetickému specialistovi)?', '1.1.3': 'Jsou přiloženy fotografie správného objektu?' }},
+                    '1.2': { title: 'Obsah', items: { '1.2.1': 'Jsou v obsahu uvedeny všechny stránky dokumentace?' }},
+                    '1.3': { title: 'Základní informace', items: { '1.3.1': 'Jsou údaje správné? (kontrola s Katastrem nemovitostí)', '1.3.2': 'Je správně uvedena a zkontrolována podlažnost objektu (ne slepě kopírovat)?', '1.3.3': 'Jsou doplněny stávající zdroje tepla (pokud jsou známy)?' }},
+                    '1.4': { title: 'Zpráva', items: { '1.4.1': 'Odpovídají údaje ve zprávě ostatním částem dokumentace?', '1.4.2': 'Je správný popis domu a jeho podlažnosti?', '1.4.3': 'Je správně určen směr hlavního vstupu?', '1.4.4': 'Je správně popsáno napojení na technickou infrastrukturu? (kontrola dle katastru/tech. mapy)', '1.4.5': 'Je správně popsána nosná konstrukce?' }},
+                    '1.5': { title: 'Situace a majetkoprávní identifikace', items: { '1.5.1': 'Jsou situace správně orientovány dle severu?', '1.5.2': 'Je dodrženo dané měřítko 1:500?' }},
+                    '1.6': { title: 'Situace', items: { '1.6.1': 'Je uvedeno správné měřítko výkresu?', '1.6.2': 'Jsou správně zakresleny vstupy a vjezdy?', '1.6.3': 'Je správně zakresleno zasíťování pozemku?', '1.6.4': 'Je správně orientována severka?' }},
+                    '1.7': { title: 'Fotodokumentace', items: { '1.7.1': 'Jsou fotografie dostatečně kvalitní a odpovídají realitě?' }},
+                    '1.8': { title: 'Pohledy - Obálka', items: { '1.8.1': 'Je objekt a jeho otvory dostatečně okótován?', '1.8.2': 'Jsou správně a bez překlepů vypsány skladby?', '1.8.3': 'Jsou správně a bez překlepů vypsány výplně otvorů (okna, dveře)?', '1.8.4': 'Je přiloženo správné schéma a fotografie objektu z odpovídající strany?', '1.8.5': 'Odpovídá uvedená světová strana reálné orientaci pohledu?' }},
+                    '1.9': { title: 'Obálka - Střešní konstrukce', items: { '1.9.1': 'Je správně označena skladba a odpovídá její popis?', '1.9.2': 'Je správně vypočítána reálná plocha střechy?', '1.9.3': 'Jsou v zákresu uvedeny sklony střechy?', '1.9.4': 'Je správně orientována severka?', '1.9.5': 'Je obrys objektu vymezen vnější hranou stěny?' }},
+                    '1.10': { title: 'Obálka - Strop/Podlaha', items: { '1.10.1': 'Je uvedena správná skladba konstrukce?', '1.10.2': 'Je plocha skladby správně ohraničená?', '1.10.3': 'Je objekt na výkrese okótován?', '1.10.4': 'Je správně orientována severka?' }},
+                    '1.11': { title: 'Půdorysy', items: { '1.11.1': 'Odpovídá tabulka místností půdorysu?', '1.11.2': 'Je půdorys dostatečně a správně okótován?', '1.11.3': 'Odpovídá popis (názvy) místností?', '1.11.4': 'Je správně orientována severka?', '1.11.5': 'Je správně uvedena energeticky vztažná plocha?' }},
+                    '1.12': { title: 'Řezy', items: { '1.12.1': 'Jsou uvedeny všechny skladby správně a bez chyb?', '1.12.2': 'Navazují na sebe konstrukce logicky?', '1.12.3': 'Je řez dostatečně a správně okótován?', '1.12.4': 'Odpovídá schéma řezu umístění v půdoryse?' }},
+                    '1.13': { title: 'Zóny', items: { '1.13.1': 'Jsou správně vymezeny vytápěné a nevytápěné zóny?', '1.13.2': 'Odpovídá 3D model reálnému objektu?', '1.13.3': 'Je odstraněno měřítko a je přítomna legenda?' }},
+                    '1.14': { title: 'Tabulky oken a dveří', items: { '1.14.1': 'Jsou v tabulce uvedeny všechny výplně ze stávajícího stavu?', '1.14.2': 'Mají výplně odpovídající materiál, součinitel prostupu tepla a typ zasklení?', '1.14.3': 'Je formátování tabulky v pořádku (není "useklá")?' }}
+                }
+            },
+            'part2': {
+                title: 'Část 2: Kontrola dokumentace - NAVRHOVANÝ STAV',
+                subtitle: 'Ověření správnosti zákresu a popisu navržených opatření, stránku po stránce.',
+                type: 'standard',
+                sections: {
+                    '2.0': { title: 'Předběžná kontrola (CRM)', items: { '2.0.1': 'Proběhla kontrola klienta a jeho požadavků a navrhovaných opatření v CRM?' }},
+                    '2.1': { title: 'Úvodní stránka', items: { '2.1.1': 'Je správně označeno "Navrhovaný stav"?', '2.1.2': 'Jsou vypsána všechna navrhovaná opatření?', '2.1.3': 'Je razítko bokem (dokumentace ještě nejde k energetickému specialistovi)?' }},
+                    '2.2': { title: 'Obsah', items: { '2.2.1': 'Jsou v obsahu uvedeny všechny stránky dokumentace?' }},
+                    '2.3': { title: 'Základní informace', items: { '2.3.1': 'Kontrola podlažnosti a navrhované vytápěné plochy.', '2.3.2': 'Jsou uvedeny stávající a navrhované zdroje energie (pokud jsou řešeny)?', '2.3.3': 'Odpovídají plochy stínění a jejich součet (pokud je stínící technika řešena)?', '2.3.4': 'Jsou v informacích správně popsána všechna navrhovaná opatření?' }},
+                    '2.4': { title: 'Zpráva', items: { '2.4.1': 'Byla zkontrolována podlažnost (změna neobytného podkroví na obytné apod.)?', '2.4.2': 'Jsou správně popsány případné nové konstrukce?' }},
+                    '2.5': { title: 'Situace a majetkoprávní identifikace', items: { '2.5.1': 'Jsou situace správně orientovány dle severu?', '2.5.2': 'Je dodrženo dané měřítko 1:500?' }},
+                    '2.6': { title: 'Situace', items: { '2.6.1': 'Je uvedeno správné měřítko výkresu?', '2.6.2': 'Jsou správně zakresleny vstupy a vjezdy?', '2.6.3': 'Je správně zakresleno zasíťování pozemku?', '2.6.4': 'Je správně orientována severka?', '2.6.5': 'Je případná nádrž na dešťovou vodu správně zakreslena?' }},
+                    '2.7': { title: 'Fotodokumentace', items: { '2.7.1': 'Jsou fotografie dostatečně kvalitní a odpovídají realitě?' }},
+                    '2.8': { title: 'Pohledy - Obálka', items: { '2.8.1': 'Je objekt a jeho otvory dostatečně okótován?', '2.8.2': 'Jsou nové skladby správně vypsány a bez překlepů?', '2.8.3': 'Jsou nové/vyměněné výplně otvorů správně a bez překlepů popsány?', '2.8.4': 'Je přiloženo správné schéma a fotografie objektu z odpovídající strany?', '2.8.5': 'Odpovídá uvedená světová strana reálné orientaci pohledu?', '2.8.6': 'Je zateplení (nová tloušťka stěny) správně zakresleno?' }},
+                    '2.9': { title: 'Obálka - Střešní konstrukce', items: { '2.9.1': 'Je správně označena nová skladba a odpovídá její popis?', '2.9.2': 'Je správně vypočítána reálná plocha střechy?', '2.9.3': 'Jsou v zákresu uvedeny sklony střechy?', '2.9.4': 'Je správně orientována severka?', '2.9.5': 'Je obrys objektu vymezen vnější hranou stěny?', '2.9.6': 'Odpovídá tloušťka izolace ve skladbě údajům v řezech?' }},
+                    '2.10': { title: 'Obálka - Strop/Podlaha', items: { '2.10.1': 'Je uvedena správná nová skladba konstrukce?', '2.10.2': 'Je plocha skladby správně ohraničená?', '2.10.3': 'Je objekt na výkrese okótován?', '2.10.4': 'Je správně orientována severka?', '2.10.5': 'Odpovídá tloušťka izolace ve skladbě údajům v řezech?' }},
+                    '2.10a': { title: 'Stínící technika - pohledy', items: { '2.10a.1': 'Je stínění navrženo logicky? (stínit záchod nemá smysl)', '2.10a.2': 'Je celková plocha stínění správně spočítána?' }},
+                    '2.11': { title: 'Půdorysy', items: { '2.11.1': 'Odpovídá tabulka místností půdorysu?', '2.11.2': 'Je půdorys dostatečně a správně okótován?', '2.11.3': 'Odpovídá popis (názvy) místností?', '2.11.4': 'Je správně orientována severka?', '2.11.5': 'Je správně uvedena nová energeticky vztažná plocha?', '2.11.6': 'Jsou správně zakresleny nové tloušťky obvodových stěn?' }},
+                    '2.12': { title: 'Řezy', items: { '2.12.1': 'Jsou uvedeny všechny nové skladby správně a bez chyb?', '2.12.2': 'Navazují na sebe konstrukce logicky?', '2.12.3': 'Je řez dostatečně a správně okótován?', '2.12.4': 'Odpovídá schéma řezu umístění v půdoryse?', '2.12.5': 'Odpovídají tloušťky izolací v řezech údajům ve skladbách?' }},
+                    '2.13': { title: 'Zóny', items: { '2.13.1': 'Jsou správně vymezeny vytápěné a nevytápěné zóny?', '2.13.2': 'Odpovídá 3D model navrhovanému objektu?', '2.13.3': 'Je odstraněno měřítko a je přítomna legenda?' }},
+                    '2.14': { title: 'Tabulky oken a dveří', items: { '2.14.2': 'Mají výplně odpovídající materiál, součinitel prostupu tepla a typ zasklení?', '2.14.3': 'Je formátování tabulky v pořádku (není "useklá")?' }},
+                    '2.15': { title: 'Dešťová voda - Akumulační nádrž', items: { '2.15.1': 'Kontrola v CRM, zdali ji klient chce a poradit se s vedoucím, pokud ano.' }},
+                    '2.16': { title: 'Systém řízeného větrání se zpětným získáváním tepla', items: { '2.16.1': 'Kontrola v CRM, zdali ji klient chce a poradit se s vedoucím, pokud ano.' }},
+                    '2.17': { title: 'Použité materiály', items: { '2.17.1': 'Kontrola použitých materiálů: nechybí nějaký?', '2.17.2': 'Kontrola použitých materiálů: nepřebývá nějaký?' }}
+                }
+            },
+            'part3': {
+                title: 'Část 3: Finální kontrola a administrativa',
+                subtitle: 'Finální kroky před odevzdáním projektu klientovi.',
+                type: 'manager',
+                sections: {
+                     '3.1': {
+                        title: 'Finální kroky a administrativa',
+                        type: 'manager_checklist',
+                        items: {
+                            '3.1.1': 'Odsouhlasení klientem: Projednal a odsouhlasil klient finální podobu a rozsah projektu?',
+                            '3.1.2': 'Formální potvrzení: Existuje písemné potvrzení o odsouhlasení od klienta (e-mail, předávací protokol)?',
+                            '3.1.3': 'Kompletnost dokumentace: Jsou obě části (stávající a navrhovaný stav) kompletní a finální?'
+                        }
+                    }
+                }
+            },
+        };
+
+        function loadState() {
+            try {
+                const storedState = localStorage.getItem('checklistApp');
+                if (storedState) {
+                    appState = JSON.parse(storedState);
+                }
+            } catch (e) {
+                console.error("Nepodařilo se načíst data z localStorage", e);
+            }
+        }
+
+        function saveState() {
+            try {
+                localStorage.setItem('checklistApp', JSON.stringify(appState));
+            } catch (e) {
+                console.error("Nepodařilo se uložit data do localStorage", e);
+            }
+        }
+        
+        function createInitialChecklistData() {
+            const data = {};
+            Object.values(checklistTemplate).forEach(part => {
+                if (part.type === 'standard') {
+                    Object.values(part.sections).forEach(section => {
+                        Object.keys(section.items).forEach(key => data[key] = { status: 'unchecked', note: '' });
+                    });
+                } else if (part.type === 'manager') {
+                    Object.values(part.sections).forEach(section => {
+                        if (section.type === 'manager_checklist') {
+                            Object.keys(section.items).forEach(key => data[key] = { checked: false, note: '' });
+                        }
+                    });
+                }
+            });
+            return data;
+        }
+
+        function addProject() {
+            const projectName = newProjectNameInput.value.trim();
+            const assignedUser = assignUserSelect.value;
+            if (!projectName) {
+                alert('Zadejte prosím název projektu.');
+                return;
+            }
+            const newProject = {
+                id: `proj_${Date.now()}`,
+                name: projectName,
+                assignedUser: assignedUser,
+                status: 'ongoing',
+                createdAt: new Date().toISOString(),
+                checklistData: createInitialChecklistData()
+            };
+            appState.projects.unshift(newProject);
+            newProjectNameInput.value = '';
+            saveAndRender();
+        }
+        
+        function deleteProject(projectId) {
+            if (confirm("Opravdu si přejete smazat tento projekt? Tato akce nelze vrátit.")) {
+                appState.projects = appState.projects.filter(p => p.id !== projectId);
+                if (appState.activeProjectId === projectId) {
+                    appState.activeProjectId = null;
+                }
+                saveAndRender();
+            }
+        }
+        
+        function updateProject(projectId, updates) {
+            const projectIndex = appState.projects.findIndex(p => p.id === projectId);
+            if (projectIndex > -1) {
+                appState.projects[projectIndex] = { ...appState.projects[projectIndex], ...updates };
+                saveAndRender();
+            }
+        }
+
+        function loadProject(projectId) {
+            appState.activeProjectId = projectId;
+            saveAndRender();
+        }
+
+        function render() {
+            renderProjects();
+            const activeProject = appState.projects.find(p => p.id === appState.activeProjectId);
+            if (activeProject) {
+                checklistView.classList.remove('hidden');
+                emptyState.classList.add('hidden');
+                renderChecklist(activeProject);
+            } else {
+                checklistView.classList.add('hidden');
+                emptyState.classList.remove('hidden');
+            }
+        }
+
+        function saveAndRender() {
+            saveState();
+            render();
+        }
+        
+        function renderProjects() {
+            ongoingProjectList.innerHTML = '';
+            completedProjectList.innerHTML = '';
+
+            const sortedProjects = [...appState.projects].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+            if (sortedProjects.length === 0) {
+                 ongoingProjectList.innerHTML = '<li class="text-center text-gray-500 text-xs py-2">Žádné probíhající projekty.</li>';
+                 completedProjectList.innerHTML = '<li class="text-center text-gray-500 text-xs py-2">Žádné dokončené projekty.</li>';
+                 return;
+            }
+
+            const ongoingProjects = sortedProjects.filter(p => p.status === 'ongoing');
+            const completedProjects = sortedProjects.filter(p => p.status === 'completed');
+            
+            if(ongoingProjects.length === 0) ongoingProjectList.innerHTML = '<li class="text-center text-gray-500 text-xs py-2">Žádné probíhající projekty.</li>';
+            if(completedProjects.length === 0) completedProjectList.innerHTML = '<li class="text-center text-gray-500 text-xs py-2">Žádné dokončené projekty.</li>';
+
+
+            ongoingProjects.forEach(project => ongoingProjectList.appendChild(renderProjectItem(project)));
+            completedProjects.forEach(project => completedProjectList.appendChild(renderProjectItem(project)));
+        }
+
+        function renderProjectItem(project) {
+            const li = document.createElement('li');
+            const isActive = project.id === appState.activeProjectId;
+            li.className = `project-list-item flex justify-between items-center cursor-pointer p-2 rounded-md text-sm font-medium ${isActive ? 'active' : ''}`;
+            li.dataset.projectId = project.id;
+            
+            li.innerHTML = `
+                <div class="flex-grow truncate pr-2" data-action="load">
+                    <span>${project.name}</span>
+                    <span class="block text-xs ${isActive ? 'text-blue-200' : 'text-gray-400'}">${project.assignedUser || 'Nepřiřazeno'}</span>
+                </div>
+                <div class="flex items-center space-x-1">
+                    <button class="action-btn move-btn text-gray-400 hover:text-blue-600 p-1 rounded-full" data-action="toggle" title="${project.status === 'ongoing' ? 'Označit jako dokončené' : 'Označit jako probíhající'}">
+                        ${project.status === 'ongoing' 
+                            ? `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>` 
+                            : `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" /></svg>`
+                        }
+                    </button>
+                    <button class="action-btn delete-btn text-gray-400 hover:text-red-600 p-1 rounded-full" data-action="delete" title="Smazat projekt">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" /></svg>
+                    </button>
+                </div>
+            `;
+            return li;
+        }
+
+        function renderChecklist(project) {
+            projectTitle.textContent = project.name;
+            projectUserSelect.value = project.assignedUser || 'Michael';
+            checklistContent.innerHTML = '';
+            const data = project.checklistData;
+
+            const parts = Object.values(checklistTemplate);
+            parts.forEach((part, index) => {
+                const isLastPart = index === parts.length - 1;
+                const pageBreakClass = !isLastPart ? 'pdf-page-break' : '';
+
+                let partHtml = `<div class="bg-white shadow-sm ring-1 ring-gray-900/5 rounded-xl print-section ${pageBreakClass}"><div class="px-4 py-5 sm:px-6 border-b border-gray-200"><h3 class="text-lg font-semibold leading-6 text-gray-900">${part.title}</h3><p class="mt-1 text-sm text-gray-500">${part.subtitle}</p></div><div class="p-4 sm:p-6 space-y-6">`;
+                
+                if (part.type === 'standard') {
+                    Object.values(part.sections).forEach(section => {
+                        partHtml += `<h4 class="text-md font-semibold text-gray-700">${section.title}</h4><table class="min-w-full"><tbody>`;
+                        Object.entries(section.items).forEach(([key, label]) => {
+                            const itemData = data[key] || { status: 'unchecked', note: '' };
+                            partHtml += `<tr data-item-key="${key}" data-type="standard">
+                                <td class="w-1/2 py-3 text-sm text-gray-600">${label}</td>
+                                <td class="w-1/4 px-4 py-3"><div class="flex items-center space-x-4 custom-radio no-print">
+                                    <input type="radio" id="ok-${key}" name="status-${key}" value="OK" ${itemData.status === 'OK' ? 'checked' : ''}><label for="ok-${key}" class="ok-label">OK</label>
+                                    <input type="radio" id="chyba-${key}" name="status-${key}" value="Chyba" ${itemData.status === 'Chyba' ? 'checked' : ''}><label for="chyba-${key}" class="chyba-label">Chyba</label>
+                                </div>
+                                <span class="print-only text-sm font-medium ${itemData.status === 'OK' ? 'text-green-600' : itemData.status === 'Chyba' ? 'text-red-600' : 'text-gray-500'}">${itemData.status}</span>
+                                </td>
+                                <td class="w-1/4 py-3"><input type="text" class="note-input w-full px-2 py-1 border border-gray-300 rounded-md text-sm no-print" placeholder="Poznámka..." value="${itemData.note}">
+                                <span class="print-only text-sm text-gray-800">${itemData.note}</span>
+                                </td>
+                            </tr>`;
+                        });
+                        partHtml += '</tbody></table>';
+                    });
+                } else if (part.type === 'manager') {
+                    Object.values(part.sections).forEach(section => {
+                        partHtml += `<div class="p-4 border rounded-lg"><h4 class="text-md font-semibold text-gray-800">${section.title}</h4>${section.subtitle ? `<p class="text-sm text-gray-500 mt-1">${section.subtitle}</p>` : ''}<div class="mt-4">`;
+                        if (section.type === 'manager_checklist') {
+                            partHtml += '<table class="min-w-full"><tbody>';
+                            Object.entries(section.items).forEach(([key, label]) => {
+                                const itemData = data[key] || { checked: false, note: '' };
+                                partHtml += `<tr data-item-key="${key}" data-type="manager_checklist">
+                                    <td class="w-1/2 py-3 text-sm text-gray-600">${label}</td>
+                                    <td class="w-1/4 px-4 py-3"><div class="flex items-center manager-check no-print">
+                                        <input type="checkbox" id="check-${key}" ${itemData.checked ? 'checked' : ''} class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-600 sr-only">
+                                        <label for="check-${key}" class="cursor-pointer px-4 py-1 rounded-full border border-gray-300 text-sm">${itemData.checked ? 'Hotovo' : 'Čeká'}</label>
+                                    </div>
+                                    <span class="print-only text-sm font-medium ${itemData.checked ? 'text-green-600' : 'text-gray-500'}">${itemData.checked ? 'Hotovo' : 'Čeká'}</span>
+                                    </td>
+                                    <td class="w-1/4 py-3"><input type="text" class="note-input w-full px-2 py-1 border border-gray-300 rounded-md text-sm no-print" placeholder="Poznámka..." value="${itemData.note}">
+                                    <span class="print-only text-sm text-gray-800">${itemData.note}</span>
+                                    </td>
+                                </tr>`;
+                            });
+                            partHtml += '</tbody></table>';
+                        }
+                        partHtml += '</div></div>';
+                    });
+                }
+                partHtml += '</div></div>';
+                checklistContent.insertAdjacentHTML('beforeend', partHtml);
+            });
+        }
+        
+        function updateChecklistItem(itemKey, field, value) {
+            const project = appState.projects.find(p => p.id === appState.activeProjectId);
+            if (project && project.checklistData[itemKey]) {
+                project.checklistData[itemKey][field] = value;
+                saveAndRender();
+            }
+        }
+
+        function handleProjectListClick(event) {
+            const target = event.target;
+            const action = target.dataset.action || target.closest('[data-action]')?.dataset.action;
+            const li = target.closest('.project-list-item');
+            if (!action || !li) return;
+            
+            const projectId = li.dataset.projectId;
+
+            switch(action) {
+                case 'load':
+                    loadProject(projectId);
+                    break;
+                case 'toggle':
+                    const project = appState.projects.find(p => p.id === projectId);
+                    if (project) {
+                        const newStatus = project.status === 'ongoing' ? 'completed' : 'ongoing';
+                        updateProject(projectId, { status: newStatus });
+                    }
+                    break;
+                case 'delete':
+                    deleteProject(projectId);
+                    break;
+            }
+        }
+        
+        function exportToPdf() {
+            const activeProject = appState.projects.find(p => p.id === appState.activeProjectId);
+            if (!activeProject) {
+                alert("Nejprve vyberte projekt k exportu.");
+                return;
+            }
+            
+            const element = document.getElementById('checklist-content');
+            
+            const header = document.createElement('div');
+            header.style.padding = '24px';
+            header.style.borderBottom = '1px solid #e5e7eb';
+            header.style.marginBottom = '24px';
+            header.innerHTML = `
+                <h1 style="font-size: 24px; font-weight: bold; color: #111827;">Report: ${activeProject.name}</h1>
+                <p style="font-size: 14px; color: #4b5563; margin-top: 4px;">Přiřazeno: ${activeProject.assignedUser}</p>
+                <p style="font-size: 12px; color: #6b7280; margin-top: 2px;">Vygenerováno: ${new Date().toLocaleString('cs-CZ')}</p>
+            `;
+            
+            const contentClone = element.cloneNode(true);
+            const exportContainer = document.createElement('div');
+            exportContainer.appendChild(header);
+            exportContainer.appendChild(contentClone);
+
+            contentClone.querySelectorAll('.no-print').forEach(el => el.style.display = 'none');
+            contentClone.querySelectorAll('.print-only').forEach(el => {
+                el.style.display = 'inline-block'; 
+                el.style.visibility = 'visible';
+            });
+
+            const opt = {
+              margin: [10, 10, 10, 10],
+              filename: `checklist-${activeProject.name.replace(/ /g,"_")}.pdf`,
+              image: { type: 'jpeg', quality: 0.98 },
+              html2canvas: { scale: 2, useCORS: true },
+              jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            html2pdf().from(exportContainer).set(opt).save();
+        }
+
+        // --- Event Listeners ---
+        addProjectBtn.addEventListener('click', addProject);
+        newProjectNameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') addProject(); });
+        exportPdfBtn.addEventListener('click', exportToPdf);
+        
+        ongoingProjectList.addEventListener('click', handleProjectListClick);
+        completedProjectList.addEventListener('click', handleProjectListClick);
+        
+        projectUserSelect.addEventListener('change', (e) => {
+            if (appState.activeProjectId) {
+                updateProject(appState.activeProjectId, { assignedUser: e.target.value });
+            }
+        });
+        
+        let timeoutId;
+        checklistContent.addEventListener('input', (e) => {
+            const tr = e.target.closest('tr');
+            if (!tr || !e.target.classList.contains('note-input')) return;
+            
+            const itemKey = tr.dataset.itemKey;
+            const value = e.target.value;
+            
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => updateChecklistItem(itemKey, 'note', value), 500);
+        });
+
+        checklistContent.addEventListener('change', (e) => {
+            const tr = e.target.closest('tr');
+            if (!tr) return;
+            
+            const itemKey = tr.dataset.itemKey;
+            
+            if (e.target.type === 'radio') {
+                updateChecklistItem(itemKey, 'status', e.target.value);
+            } else if (e.target.type === 'checkbox') {
+                updateChecklistItem(itemKey, 'checked', e.target.checked);
+            }
+        });
+        
+        // --- Initial Load ---
+        loadState();
+        render();
+    });
+</script>
+</body>
+</html>
+
