@@ -227,17 +227,6 @@
                 projects = fetchedProjects;
             } catch (error) {
                 console.error("Chyba při načítání projektů:", error);
-                // V případě chyby načítání z API můžeme použít stará data, pokud existují v localStorage, pro nouzové zobrazení
-                try {
-                    const storedState = localStorage.getItem('checklistApp');
-                    if (storedState) {
-                        projects = JSON.parse(storedState).projects;
-                        activeProjectId = JSON.parse(storedState).activeProjectId;
-                        console.log("Načteno z localStorage jako záloha.");
-                    }
-                } catch (e) {
-                    console.error("Chyba při načítání zálohy z localStorage", e);
-                }
             }
         }
 
@@ -456,15 +445,15 @@
             }
         }
         
-        let timeoutId;
+        let noteInputTimeout;
         function updateNoteData(itemKey, value) {
             const project = projects.find(p => p.id === activeProjectId);
             if (project && project.checklistData[itemKey]) {
                 project.checklistData[itemKey]['note'] = value;
-                clearTimeout(timeoutId);
-                timeoutId = setTimeout(() => {
+                clearTimeout(noteInputTimeout);
+                noteInputTimeout = setTimeout(() => {
                     updateProjectInDB(activeProjectId, { checklistData: project.checklistData });
-                }, 500); // Debounce pro poznámky
+                }, 500); 
             }
         }
 
