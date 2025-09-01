@@ -1,0 +1,8 @@
+{
+  "name": "kontroln-protokol-pd",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@vercel/kv": "^0.2.2"
+  }
+}
