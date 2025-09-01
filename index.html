@@ -253,6 +253,9 @@
                 if (!projectToUpdate) return;
                 
                 const updatedProject = { ...projectToUpdate, ...updates };
+                // Místní aktualizace pole `projects` pro okamžitou změnu
+                projects = projects.map(p => p.id === projectId ? updatedProject : p);
+                render();
 
                 const response = await fetch('/api/projects', {
                     method: 'PUT',
@@ -260,9 +263,9 @@
                     body: JSON.stringify(updatedProject)
                 });
                 if (!response.ok) {
+                    await fetchAndRender(); // V případě selhání se vrátíme k původnímu stavu
                     throw new Error('Nepodařilo se aktualizovat projekt.');
                 }
-                await fetchAndRender();
             } catch (error) {
                 console.error("Chyba při aktualizaci projektu:", error);
             }
@@ -445,15 +448,11 @@
             }
         }
         
-        let noteInputTimeout;
         function updateNoteData(itemKey, value) {
             const project = projects.find(p => p.id === activeProjectId);
             if (project && project.checklistData[itemKey]) {
                 project.checklistData[itemKey]['note'] = value;
-                clearTimeout(noteInputTimeout);
-                noteInputTimeout = setTimeout(() => {
-                    updateProjectInDB(activeProjectId, { checklistData: project.checklistData });
-                }, 500); 
+                updateProjectInDB(activeProjectId, { checklistData: project.checklistData });
             }
         }
 
@@ -539,16 +538,6 @@
             }
         });
         
-        checklistContent.addEventListener('input', (e) => {
-            const tr = e.target.closest('tr');
-            if (!tr || !e.target.classList.contains('note-input')) return;
-            
-            const itemKey = tr.dataset.itemKey;
-            const value = e.target.value;
-            
-            updateNoteData(itemKey, value);
-        });
-
         checklistContent.addEventListener('change', (e) => {
             const tr = e.target.closest('tr');
             if (!tr) return;
@@ -560,6 +549,23 @@
             } else if (e.target.type === 'checkbox') {
                 updateChecklistItem(itemKey, 'checked', e.target.checked);
             }
+        });
+
+        // Nový event listener, který se spustí při opuštění textového pole
+        checklistContent.addEventListener('focusout', (e) => {
+            const tr = e.target.closest('tr');
+            if (!tr || !e.target.classList.contains('note-input')) return;
+            
+            const itemKey = tr.dataset.itemKey;
+            const value = e.target.value;
+            const project = projects.find(p => p.id === activeProjectId);
+
+            // Lokální aktualizace pro okamžitou zpětnou vazbu
+            if (project && project.checklistData[itemKey]) {
+                project.checklistData[itemKey]['note'] = value;
+            }
+            // A odeslání na server po opuštění pole
+            updateProjectInDB(activeProjectId, { checklistData: project.checklistData });
         });
         
         // --- Initial Load ---
