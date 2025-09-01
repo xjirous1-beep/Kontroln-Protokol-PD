@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kontrolní protokol NZÚ (Offline verze)</title>
+    <title>Kontrolní protokol NZÚ</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
@@ -426,6 +426,15 @@
             }
         }
 
+        // New function that only saves data without re-rendering the UI
+        function updateNoteData(itemKey, value) {
+            const project = appState.projects.find(p => p.id === appState.activeProjectId);
+            if (project && project.checklistData[itemKey]) {
+                project.checklistData[itemKey]['note'] = value;
+                saveState(); // Only save, don't re-render
+            }
+        }
+
         function handleProjectListClick(event) {
             const target = event.target;
             const action = target.dataset.action || target.closest('[data-action]')?.dataset.action;
@@ -516,7 +525,8 @@
             const value = e.target.value;
             
             clearTimeout(timeoutId);
-            timeoutId = setTimeout(() => updateChecklistItem(itemKey, 'note', value), 500);
+            // Use the new lightweight function for notes to avoid losing focus
+            timeoutId = setTimeout(() => updateNoteData(itemKey, value), 500);
         });
 
         checklistContent.addEventListener('change', (e) => {
@@ -539,5 +549,6 @@
 </script>
 </body>
 </html>
+
 
 
