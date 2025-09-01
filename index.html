@@ -17,22 +17,6 @@
         .project-list-item:not(.active):hover { background-color: #f3f4f6; }
         .action-btn { visibility: hidden; opacity: 0; transition: visibility 0s, opacity 0.2s linear; }
         .project-list-item:hover .action-btn { visibility: visible; opacity: 1; }
-        .loader {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #3b82f6;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
         .custom-radio input { opacity: 0; width: 0; height: 0; position: absolute; }
         .custom-radio label {
             cursor: pointer;
@@ -52,28 +36,24 @@
         }
 
         .pdf-page-break {
-            break-after: page;
-            page-break-after: always; /* Fallback for older browsers */
+            break-before: page;
+            page-break-before: always;
         }
 
         @media print {
             .no-print { display: none !important; }
-            .print-only { display: inline !important; visibility: visible !important; }
-            body, #app-container, main {
+            .print-only { display: inline !important; }
+            body {
                 padding: 0;
                 margin: 0;
             }
-            #checklist-content {
-                box-shadow: none;
-                border: none;
-            }
-            .bg-white.shadow-sm {
-                box-shadow: none;
-                border: 1px solid #e5e7eb;
+            .bg-white {
+                box-shadow: none !important;
+                border: 1px solid #e5e7eb !important;
                 page-break-inside: avoid;
             }
-            .pdf-page-break {
-                page-break-after: always;
+             .pdf-page-break {
+                page-break-before: always;
             }
         }
     </style>
@@ -125,7 +105,7 @@
                     <span>Exportovat do PDF</span>
                 </button>
             </div>
-            <div id="checklist-content" class="space-y-8"></div>
+            <div id="checklist-content"></div>
         </div>
         <div id="empty-state" class="flex items-center justify-center h-full no-print">
             <div class="text-center">
@@ -378,10 +358,14 @@
 
             const parts = Object.values(checklistTemplate);
             parts.forEach((part, index) => {
-                const isLastPart = index === parts.length - 1;
-                const pageBreakClass = !isLastPart ? 'pdf-page-break' : '';
+                const sectionWrapper = document.createElement('div');
+                sectionWrapper.className = `bg-white shadow-sm ring-1 ring-gray-900/5 rounded-xl`;
+                
+                if (index > 0) {
+                    sectionWrapper.classList.add('pdf-page-break');
+                }
 
-                let partHtml = `<div class="bg-white shadow-sm ring-1 ring-gray-900/5 rounded-xl print-section ${pageBreakClass}"><div class="px-4 py-5 sm:px-6 border-b border-gray-200"><h3 class="text-lg font-semibold leading-6 text-gray-900">${part.title}</h3><p class="mt-1 text-sm text-gray-500">${part.subtitle}</p></div><div class="p-4 sm:p-6 space-y-6">`;
+                let partHtml = `<div class="px-4 py-5 sm:px-6 border-b border-gray-200"><h3 class="text-lg font-semibold leading-6 text-gray-900">${part.title}</h3><p class="mt-1 text-sm text-gray-500">${part.subtitle}</p></div><div class="p-4 sm:p-6 space-y-6">`;
                 
                 if (part.type === 'standard') {
                     Object.values(part.sections).forEach(section => {
@@ -428,8 +412,9 @@
                         partHtml += '</div></div>';
                     });
                 }
-                partHtml += '</div></div>';
-                checklistContent.insertAdjacentHTML('beforeend', partHtml);
+                partHtml += '</div>';
+                sectionWrapper.innerHTML = partHtml;
+                checklistContent.appendChild(sectionWrapper);
             });
         }
         
@@ -480,7 +465,7 @@
             header.style.borderBottom = '1px solid #e5e7eb';
             header.style.marginBottom = '24px';
             header.innerHTML = `
-                <h1 style="font-size: 24px; font-weight: bold; color: #111827;">Report: ${activeProject.name}</h1>
+                <h1 style="font-size: 24px; font-weight: bold; color: #111827;">Kontrolní protokol: ${activeProject.name}</h1>
                 <p style="font-size: 14px; color: #4b5563; margin-top: 4px;">Přiřazeno: ${activeProject.assignedUser}</p>
                 <p style="font-size: 12px; color: #6b7280; margin-top: 2px;">Vygenerováno: ${new Date().toLocaleString('cs-CZ')}</p>
             `;
@@ -501,7 +486,8 @@
               filename: `checklist-${activeProject.name.replace(/ /g,"_")}.pdf`,
               image: { type: 'jpeg', quality: 0.98 },
               html2canvas: { scale: 2, useCORS: true },
-              jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+              jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+              pagebreak: { mode: 'css', before: '.pdf-page-break' }
             };
 
             html2pdf().from(exportContainer).set(opt).save();
@@ -553,4 +539,5 @@
 </script>
 </body>
 </html>
+
 
