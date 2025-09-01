@@ -61,7 +61,6 @@
 <body class="h-full">
 
 <div id="app-container" class="grid md:grid-cols-12 h-full">
-    <!-- Sidebar for Projects -->
     <aside class="md:col-span-3 lg:col-span-2 bg-white border-r border-gray-200 p-4 flex flex-col h-full no-print">
         <h1 class="text-xl font-bold text-gray-800 mb-4">Projekty NZÚ</h1>
         <div class="mb-4 space-y-2">
@@ -86,7 +85,6 @@
         </div>
     </aside>
 
-    <!-- Main Content for Checklist -->
     <main class="md:col-span-9 lg:col-span-10 p-6 overflow-y-auto h-full relative">
         <div id="checklist-view" class="hidden">
             <div class="flex justify-between items-start mb-6">
@@ -131,10 +129,8 @@
         const exportPdfBtn = document.getElementById('export-pdf-btn');
         const projectUserSelect = document.getElementById('project-user-select');
 
-        let appState = {
-            projects: [],
-            activeProjectId: null
-        };
+        let projects = [];
+        let activeProjectId = null;
 
         const checklistTemplate = {
             'part1': {
@@ -203,25 +199,6 @@
             },
         };
 
-        function loadState() {
-            try {
-                const storedState = localStorage.getItem('checklistApp');
-                if (storedState) {
-                    appState = JSON.parse(storedState);
-                }
-            } catch (e) {
-                console.error("Nepodařilo se načíst data z localStorage", e);
-            }
-        }
-
-        function saveState() {
-            try {
-                localStorage.setItem('checklistApp', JSON.stringify(appState));
-            } catch (e) {
-                console.error("Nepodařilo se uložit data do localStorage", e);
-            }
-        }
-        
         function createInitialChecklistData() {
             const data = {};
             Object.values(checklistTemplate).forEach(part => {
@@ -240,6 +217,89 @@
             return data;
         }
 
+        async function fetchProjects() {
+            try {
+                const response = await fetch('/api/projects');
+                if (!response.ok) {
+                    throw new Error('Nepodařilo se načíst projekty.');
+                }
+                const fetchedProjects = await response.json();
+                projects = fetchedProjects;
+            } catch (error) {
+                console.error("Chyba při načítání projektů:", error);
+                // V případě chyby načítání z API můžeme použít stará data, pokud existují v localStorage, pro nouzové zobrazení
+                try {
+                    const storedState = localStorage.getItem('checklistApp');
+                    if (storedState) {
+                        projects = JSON.parse(storedState).projects;
+                        activeProjectId = JSON.parse(storedState).activeProjectId;
+                        console.log("Načteno z localStorage jako záloha.");
+                    }
+                } catch (e) {
+                    console.error("Chyba při načítání zálohy z localStorage", e);
+                }
+            }
+        }
+
+        async function createProject(projectData) {
+            try {
+                const response = await fetch('/api/projects', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(projectData)
+                });
+                if (!response.ok) {
+                    throw new Error('Nepodařilo se vytvořit projekt.');
+                }
+                await fetchAndRender();
+                newProjectNameInput.value = '';
+            } catch (error) {
+                console.error("Chyba při vytváření projektu:", error);
+            }
+        }
+        
+        async function updateProjectInDB(projectId, updates) {
+            try {
+                const projectToUpdate = projects.find(p => p.id === projectId);
+                if (!projectToUpdate) return;
+                
+                const updatedProject = { ...projectToUpdate, ...updates };
+
+                const response = await fetch('/api/projects', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updatedProject)
+                });
+                if (!response.ok) {
+                    throw new Error('Nepodařilo se aktualizovat projekt.');
+                }
+                await fetchAndRender();
+            } catch (error) {
+                console.error("Chyba při aktualizaci projektu:", error);
+            }
+        }
+
+        async function deleteProjectFromDB(projectId) {
+            if (!confirm("Opravdu si přejete smazat tento projekt? Tato akce nelze vrátit.")) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/projects?id=${projectId}`, {
+                    method: 'DELETE'
+                });
+                if (!response.ok) {
+                    throw new Error('Nepodařilo se smazat projekt.');
+                }
+                if (activeProjectId === projectId) {
+                    activeProjectId = null;
+                }
+                await fetchAndRender();
+            } catch (error) {
+                console.error("Chyba při mazání projektu:", error);
+            }
+        }
+
         function addProject() {
             const projectName = newProjectNameInput.value.trim();
             const assignedUser = assignUserSelect.value;
@@ -255,37 +315,12 @@
                 createdAt: new Date().toISOString(),
                 checklistData: createInitialChecklistData()
             };
-            appState.projects.unshift(newProject);
-            newProjectNameInput.value = '';
-            saveAndRender();
-        }
-        
-        function deleteProject(projectId) {
-            if (confirm("Opravdu si přejete smazat tento projekt? Tato akce nelze vrátit.")) {
-                appState.projects = appState.projects.filter(p => p.id !== projectId);
-                if (appState.activeProjectId === projectId) {
-                    appState.activeProjectId = null;
-                }
-                saveAndRender();
-            }
-        }
-        
-        function updateProject(projectId, updates) {
-            const projectIndex = appState.projects.findIndex(p => p.id === projectId);
-            if (projectIndex > -1) {
-                appState.projects[projectIndex] = { ...appState.projects[projectIndex], ...updates };
-                saveAndRender();
-            }
-        }
-
-        function loadProject(projectId) {
-            appState.activeProjectId = projectId;
-            saveAndRender();
+            createProject(newProject);
         }
 
         function render() {
             renderProjects();
-            const activeProject = appState.projects.find(p => p.id === appState.activeProjectId);
+            const activeProject = projects.find(p => p.id === activeProjectId);
             if (activeProject) {
                 checklistView.classList.remove('hidden');
                 emptyState.classList.add('hidden');
@@ -296,16 +331,11 @@
             }
         }
 
-        function saveAndRender() {
-            saveState();
-            render();
-        }
-        
         function renderProjects() {
             ongoingProjectList.innerHTML = '';
             completedProjectList.innerHTML = '';
 
-            const sortedProjects = [...appState.projects].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            const sortedProjects = [...projects].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
             if (sortedProjects.length === 0) {
                  ongoingProjectList.innerHTML = '<li class="text-center text-gray-500 text-xs py-2">Žádné probíhající projekty.</li>';
@@ -326,7 +356,7 @@
 
         function renderProjectItem(project) {
             const li = document.createElement('li');
-            const isActive = project.id === appState.activeProjectId;
+            const isActive = project.id === activeProjectId;
             li.className = `project-list-item flex justify-between items-center cursor-pointer p-2 rounded-md text-sm font-medium ${isActive ? 'active' : ''}`;
             li.dataset.projectId = project.id;
             
@@ -419,19 +449,22 @@
         }
         
         function updateChecklistItem(itemKey, field, value) {
-            const project = appState.projects.find(p => p.id === appState.activeProjectId);
+            const project = projects.find(p => p.id === activeProjectId);
             if (project && project.checklistData[itemKey]) {
                 project.checklistData[itemKey][field] = value;
-                saveAndRender();
+                updateProjectInDB(activeProjectId, { checklistData: project.checklistData });
             }
         }
-
-        // New function that only saves data without re-rendering the UI
+        
+        let timeoutId;
         function updateNoteData(itemKey, value) {
-            const project = appState.projects.find(p => p.id === appState.activeProjectId);
+            const project = projects.find(p => p.id === activeProjectId);
             if (project && project.checklistData[itemKey]) {
                 project.checklistData[itemKey]['note'] = value;
-                saveState(); // Only save, don't re-render
+                clearTimeout(timeoutId);
+                timeoutId = setTimeout(() => {
+                    updateProjectInDB(activeProjectId, { checklistData: project.checklistData });
+                }, 500); // Debounce pro poznámky
             }
         }
 
@@ -445,23 +478,24 @@
 
             switch(action) {
                 case 'load':
-                    loadProject(projectId);
+                    activeProjectId = projectId;
+                    render();
                     break;
                 case 'toggle':
-                    const project = appState.projects.find(p => p.id === projectId);
+                    const project = projects.find(p => p.id === projectId);
                     if (project) {
                         const newStatus = project.status === 'ongoing' ? 'completed' : 'ongoing';
-                        updateProject(projectId, { status: newStatus });
+                        updateProjectInDB(projectId, { status: newStatus });
                     }
                     break;
                 case 'delete':
-                    deleteProject(projectId);
+                    deleteProjectFromDB(projectId);
                     break;
             }
         }
         
         function exportToPdf() {
-            const activeProject = appState.projects.find(p => p.id === appState.activeProjectId);
+            const activeProject = projects.find(p => p.id === activeProjectId);
             if (!activeProject) {
                 alert("Nejprve vyberte projekt k exportu.");
                 return;
@@ -511,12 +545,11 @@
         completedProjectList.addEventListener('click', handleProjectListClick);
         
         projectUserSelect.addEventListener('change', (e) => {
-            if (appState.activeProjectId) {
-                updateProject(appState.activeProjectId, { assignedUser: e.target.value });
+            if (activeProjectId) {
+                updateProjectInDB(activeProjectId, { assignedUser: e.target.value });
             }
         });
         
-        let timeoutId;
         checklistContent.addEventListener('input', (e) => {
             const tr = e.target.closest('tr');
             if (!tr || !e.target.classList.contains('note-input')) return;
@@ -524,9 +557,7 @@
             const itemKey = tr.dataset.itemKey;
             const value = e.target.value;
             
-            clearTimeout(timeoutId);
-            // Use the new lightweight function for notes to avoid losing focus
-            timeoutId = setTimeout(() => updateNoteData(itemKey, value), 500);
+            updateNoteData(itemKey, value);
         });
 
         checklistContent.addEventListener('change', (e) => {
@@ -543,12 +574,12 @@
         });
         
         // --- Initial Load ---
-        loadState();
-        render();
+        async function fetchAndRender() {
+            await fetchProjects();
+            render();
+        }
+        fetchAndRender();
     });
 </script>
 </body>
 </html>
-
-
-
